@@ -1,0 +1,388 @@
+// =============================================================================
+// 约个钓 Prisma Schema (Prisma 7)
+//
+// 与设计文档《约个钓-后端设计-v1.md》3.3 节 DDL 对应，共 17 张表。
+//
+// 字段命名约定：
+//   - 模型字段 camelCase，DB 列 snake_case（通过 @map 映射）
+//   - 表名通过 @@map 映射到 DDL 中的复数形式
+//   - BigInt UNSIGNED 主键 + @db.UnsignedBigInt 外键
+//   - JSON 字段在应用层用 string[] / Record<...> 类型
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// -----------------------------------------------------------------------------
+// 用户
+// -----------------------------------------------------------------------------
+model User {
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  openid          String    @unique(map: "uk_openid") @db.VarChar(64)
+  unionid         String?   @db.VarChar(64)
+  phone           String?   @db.VarChar(20)
+  nickname        String?   @db.VarChar(32)
+  avatar          String?   @db.VarChar(256)
+  gender          Int       @default(0) @db.UnsignedTinyInt
+  city            String?   @db.VarChar(32)
+  lat             Decimal?  @db.Decimal(9, 6)
+  lng             Decimal?  @db.Decimal(9, 6)
+  geohash         String?   @db.Char(8)
+  fishingAgeBand  String?   @map("fishing_age_band") @db.VarChar(16)
+  playStyles      Json?     @map("play_styles")
+  status          String    @default("active") @db.VarChar(16)
+  allowNearby     Boolean   @default(true) @map("allow_nearby")
+  allowShowLoc    Boolean   @default(true) @map("allow_show_loc")
+  lastActiveAt    DateTime? @map("last_active_at") @db.DateTime(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  createdSpots         Spot[]           @relation("SpotCreator")
+  catches              Catch[]
+  ownedTeams           Team[]           @relation("TeamOwner")
+  teamMemberships      TeamMember[]
+  notifications        Notification[]   @relation("NotificationRecipient")
+  notificationActions  Notification[]   @relation("NotificationActor")
+  following            Follow[]         @relation("Follower")
+  followers            Follow[]         @relation("Followee")
+  catchLikes           CatchLike[]
+  catchFavorites       CatchFavorite[]
+  spotWants            SpotWant[]
+  spotReviews          SpotReview[]
+  comments             Comment[]
+  commentLikes         CommentLike[]
+  sentMessages         Message[]        @relation("MessageFrom")
+  receivedMessages     Message[]        @relation("MessageTo")
+  fishRecords          UserFishRecord[]
+
+  @@index([geohash], map: "idx_geohash")
+  @@index([unionid], map: "idx_unionid")
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// 钓点
+// -----------------------------------------------------------------------------
+model Spot {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name         String   @db.VarChar(64)
+  type         String   @db.VarChar(16)
+  waterType    String?  @map("water_type") @db.VarChar(16)
+  lat          Decimal  @db.Decimal(9, 6)
+  lng          Decimal  @db.Decimal(9, 6)
+  geohash      String   @db.Char(8)
+  address      String?  @db.VarChar(128)
+  city         String?  @db.VarChar(32)
+  creatorId    BigInt   @map("creator_id") @db.UnsignedBigInt
+  status       String   @default("pending") @db.VarChar(16)
+  fishSpecies  Json?    @map("fish_species")
+  facilities   Json?
+  description  String?  @db.Text
+  photos       Json?
+  avgRating    Decimal  @default(0) @map("avg_rating") @db.Decimal(3, 2)
+  ratingCount  Int      @default(0) @map("rating_count")
+  wantCount    Int      @default(0) @map("want_count")
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  creator  User         @relation("SpotCreator", fields: [creatorId], references: [id])
+  catches  Catch[]
+  teams    Team[]
+  wants    SpotWant[]
+  reviews  SpotReview[]
+
+  @@index([geohash, status], map: "idx_geohash_status")
+  @@index([city, status], map: "idx_city_status")
+  @@index([creatorId], map: "idx_creator")
+  @@index([createdAt], map: "idx_created")
+  @@map("spots")
+}
+
+// -----------------------------------------------------------------------------
+// 鱼获
+// -----------------------------------------------------------------------------
+model Catch {
+  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  userId           BigInt   @map("user_id") @db.UnsignedBigInt
+  spotId           BigInt?  @map("spot_id") @db.UnsignedBigInt
+  photos           Json
+  fishSpecies      Json     @map("fish_species")
+  weightG          Int?     @map("weight_g") @db.UnsignedInt
+  lengthCm         Int?     @map("length_cm") @db.UnsignedInt
+  technique        String?  @db.VarChar(16)
+  bait             String?  @db.VarChar(32)
+  content          String?  @db.Text
+  lat              Decimal? @db.Decimal(9, 6)
+  lng              Decimal? @db.Decimal(9, 6)
+  geohash          String?  @db.Char(8)
+  locationVisible  Boolean  @default(true) @map("location_visible")
+  allowComments    Boolean  @default(true) @map("allow_comments")
+  weatherSnapshot  Json?    @map("weather_snapshot")
+  likeCount        Int      @default(0) @map("like_count") @db.UnsignedInt
+  commentCount     Int      @default(0) @map("comment_count") @db.UnsignedInt
+  favCount         Int      @default(0) @map("fav_count") @db.UnsignedInt
+  reviewStatus     String   @default("pending") @map("review_status") @db.VarChar(16)
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  user       User            @relation(fields: [userId], references: [id])
+  spot       Spot?           @relation(fields: [spotId], references: [id])
+  likes      CatchLike[]
+  favorites  CatchFavorite[]
+  comments   Comment[]
+
+  @@index([userId, createdAt], map: "idx_user_time")
+  @@index([spotId, createdAt], map: "idx_spot_time")
+  @@index([geohash, reviewStatus], map: "idx_geohash_status")
+  @@index([reviewStatus, createdAt], map: "idx_feed")
+  @@map("catches")
+}
+
+// -----------------------------------------------------------------------------
+// 组队
+// -----------------------------------------------------------------------------
+model Team {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  ownerId      BigInt   @map("owner_id") @db.UnsignedBigInt
+  spotId       BigInt   @map("spot_id") @db.UnsignedBigInt
+  startTime    DateTime @map("start_time") @db.DateTime(3)
+  endTime      DateTime @map("end_time") @db.DateTime(3)
+  targetFish   Json?    @map("target_fish")
+  maxPeople    Int      @map("max_people") @db.UnsignedSmallInt
+  costMode     String   @map("cost_mode") @db.VarChar(16)
+  needCarpool  Boolean  @default(false) @map("need_carpool")
+  note         String?  @db.Text
+  status       String   @default("recruiting") @db.VarChar(16)
+  joinedCount  Int      @default(0) @map("joined_count") @db.UnsignedSmallInt
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  owner    User         @relation("TeamOwner", fields: [ownerId], references: [id])
+  spot     Spot         @relation(fields: [spotId], references: [id])
+  members  TeamMember[]
+
+  @@index([status, startTime], map: "idx_status_start")
+  @@index([ownerId], map: "idx_owner")
+  @@map("teams")
+}
+
+model TeamMember {
+  teamId      BigInt    @map("team_id") @db.UnsignedBigInt
+  userId      BigInt    @map("user_id") @db.UnsignedBigInt
+  status      String    @default("pending") @db.VarChar(16)
+  message     String?   @db.VarChar(256)
+  appliedAt   DateTime  @default(now()) @map("applied_at") @db.DateTime(3)
+  reviewedAt  DateTime? @map("reviewed_at") @db.DateTime(3)
+
+  team  Team  @relation(fields: [teamId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@id([teamId, userId])
+  @@index([userId], map: "idx_user")
+  @@map("team_members")
+}
+
+// -----------------------------------------------------------------------------
+// 通知
+// -----------------------------------------------------------------------------
+model Notification {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  userId     BigInt    @map("user_id") @db.UnsignedBigInt
+  type       String    @db.VarChar(24)
+  refType    String?   @map("ref_type") @db.VarChar(16)
+  refId      BigInt?   @map("ref_id") @db.UnsignedBigInt
+  actorId    BigInt?   @map("actor_id") @db.UnsignedBigInt
+  payload    Json?
+  readAt     DateTime? @map("read_at") @db.DateTime(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  user   User  @relation("NotificationRecipient", fields: [userId], references: [id])
+  actor  User? @relation("NotificationActor", fields: [actorId], references: [id])
+
+  @@index([userId, readAt, createdAt], map: "idx_user_unread")
+  @@map("notifications")
+}
+
+// -----------------------------------------------------------------------------
+// 关注关系（多对多自关联）
+// -----------------------------------------------------------------------------
+model Follow {
+  followerId  BigInt   @map("follower_id") @db.UnsignedBigInt
+  followeeId  BigInt   @map("followee_id") @db.UnsignedBigInt
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  follower  User  @relation("Follower", fields: [followerId], references: [id])
+  followee  User  @relation("Followee", fields: [followeeId], references: [id])
+
+  @@id([followerId, followeeId])
+  @@index([followeeId], map: "idx_followee")
+  @@map("follows")
+}
+
+// -----------------------------------------------------------------------------
+// 鱼获点赞 / 收藏
+// -----------------------------------------------------------------------------
+model CatchLike {
+  catchId    BigInt   @map("catch_id") @db.UnsignedBigInt
+  userId     BigInt   @map("user_id") @db.UnsignedBigInt
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  catch  Catch  @relation(fields: [catchId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@id([catchId, userId])
+  @@index([userId], map: "idx_user")
+  @@map("catch_likes")
+}
+
+model CatchFavorite {
+  catchId    BigInt   @map("catch_id") @db.UnsignedBigInt
+  userId     BigInt   @map("user_id") @db.UnsignedBigInt
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  catch  Catch  @relation(fields: [catchId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@id([catchId, userId])
+  @@index([userId], map: "idx_user")
+  @@map("catch_favorites")
+}
+
+// -----------------------------------------------------------------------------
+// 钓点想去 / 钓点评价
+// -----------------------------------------------------------------------------
+model SpotWant {
+  spotId     BigInt   @map("spot_id") @db.UnsignedBigInt
+  userId     BigInt   @map("user_id") @db.UnsignedBigInt
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  spot  Spot  @relation(fields: [spotId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@id([spotId, userId])
+  @@index([userId], map: "idx_user")
+  @@map("spot_wants")
+}
+
+model SpotReview {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  spotId     BigInt   @map("spot_id") @db.UnsignedBigInt
+  userId     BigInt   @map("user_id") @db.UnsignedBigInt
+  rating     Int      @db.UnsignedTinyInt
+  content    String?  @db.Text
+  photos     Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  spot  Spot  @relation(fields: [spotId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([spotId, userId], map: "uk_spot_user")
+  @@index([spotId, createdAt], map: "idx_spot_time")
+  @@map("spot_reviews")
+}
+
+// -----------------------------------------------------------------------------
+// 评论（支持二级回复）
+// -----------------------------------------------------------------------------
+model Comment {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  catchId    BigInt   @map("catch_id") @db.UnsignedBigInt
+  userId     BigInt   @map("user_id") @db.UnsignedBigInt
+  parentId   BigInt?  @map("parent_id") @db.UnsignedBigInt
+  content    String   @db.Text
+  likeCount  Int      @default(0) @map("like_count") @db.UnsignedInt
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  catch    Catch         @relation(fields: [catchId], references: [id])
+  user     User          @relation(fields: [userId], references: [id])
+  parent   Comment?      @relation("CommentReplies", fields: [parentId], references: [id])
+  replies  Comment[]     @relation("CommentReplies")
+  likes    CommentLike[]
+
+  @@index([catchId, createdAt], map: "idx_catch_time")
+  @@index([userId], map: "idx_user")
+  @@map("comments")
+}
+
+model CommentLike {
+  commentId  BigInt   @map("comment_id") @db.UnsignedBigInt
+  userId     BigInt   @map("user_id") @db.UnsignedBigInt
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  comment  Comment  @relation(fields: [commentId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@id([commentId, userId])
+  @@index([userId], map: "idx_user")
+  @@map("comment_likes")
+}
+
+// -----------------------------------------------------------------------------
+// 私信
+// -----------------------------------------------------------------------------
+model Message {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  fromId     BigInt    @map("from_id") @db.UnsignedBigInt
+  toId       BigInt    @map("to_id") @db.UnsignedBigInt
+  content    String    @db.Text
+  type       String    @default("text") @db.VarChar(16)
+  readAt     DateTime? @map("read_at") @db.DateTime(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+
+  from  User  @relation("MessageFrom", fields: [fromId], references: [id])
+  to    User  @relation("MessageTo", fields: [toId], references: [id])
+
+  @@index([fromId, toId, createdAt], map: "idx_pair_time")
+  @@index([toId, readAt], map: "idx_to_unread")
+  @@map("messages")
+}
+
+// -----------------------------------------------------------------------------
+// 鱼种字典 + 用户鱼库点亮
+// -----------------------------------------------------------------------------
+model Fish {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  nameCn     String   @unique(map: "uk_name_cn") @map("name_cn") @db.VarChar(32)
+  nameLatin  String?  @map("name_latin") @db.VarChar(64)
+  category   String?  @db.VarChar(16)
+  waters     Json?
+  icon       String?  @db.VarChar(256)
+  common     Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  userRecords UserFishRecord[]
+
+  @@map("fishes")
+}
+
+model UserFishRecord {
+  userId        BigInt   @map("user_id") @db.UnsignedBigInt
+  fishId        BigInt   @map("fish_id") @db.UnsignedBigInt
+  firstCatchAt  DateTime @map("first_catch_at") @db.DateTime(3)
+  maxWeightG    Int?     @map("max_weight_g") @db.UnsignedInt
+
+  user  User  @relation(fields: [userId], references: [id])
+  fish  Fish  @relation(fields: [fishId], references: [id])
+
+  @@id([userId, fishId])
+  @@index([fishId], map: "idx_fish")
+  @@map("user_fish_records")
+}
+
+// -----------------------------------------------------------------------------
+// 内容审核记录（异步审核流水）
+// -----------------------------------------------------------------------------
+model ContentReview {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  targetType  String   @map("target_type") @db.VarChar(16)
+  targetId    BigInt   @map("target_id") @db.UnsignedBigInt
+  channel     String   @db.VarChar(16)
+  result      String   @db.VarChar(16)
+  raw         Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  @@index([targetType, targetId], map: "idx_target")
+  @@map("content_reviews")
+}
