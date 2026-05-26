@@ -5,6 +5,7 @@ import { CommonModule } from './modules/common/common.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { SpotsModule } from './modules/spots/spots.module';
+import { CatchesModule } from './modules/catches/catches.module';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
 @Module({
@@ -15,6 +16,7 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     AuthModule,
     UsersModule,
     SpotsModule,
+    CatchesModule,
   ],
 })
 export class AppModule implements NestModule {

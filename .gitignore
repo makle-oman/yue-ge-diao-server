@@ -3,6 +3,9 @@
 /node_modules
 /build
 
+# user uploads (served via /static/uploads/...)
+/uploads
+
 # Logs
 logs
 *.log

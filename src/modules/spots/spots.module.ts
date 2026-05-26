@@ -5,5 +5,6 @@ import { SpotsService } from './spots.service';
 @Module({
   controllers: [SpotsController],
   providers: [SpotsService],
+  exports: [SpotsService],
 })
 export class SpotsModule {}

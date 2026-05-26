@@ -3,6 +3,8 @@ import { Request } from 'express';
 
 export interface JwtPayload {
   sub: string;
+  /** access | refresh — refresh 不该出现在 Authorization,JwtStrategy 会拒 */
+  typ?: 'access' | 'refresh';
   iat?: number;
   exp?: number;
 }

@@ -214,3 +214,40 @@ export class SpotHistoryDto extends SpotIdDto {
   @Type(() => Number)
   limit?: number;
 }
+
+export const USER_SPOT_TABS = ['all', 'published', 'review'] as const;
+
+export class UserSpotsDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 32)
+  userId?: string;
+
+  @IsOptional()
+  @IsIn(USER_SPOT_TABS as unknown as string[])
+  tab?: (typeof USER_SPOT_TABS)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  keyword?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  cursor?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  @Type(() => Number)
+  limit?: number;
+}
+
+export class UserSpotsStatsDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 32)
+  userId?: string;
+}

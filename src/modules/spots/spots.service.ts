@@ -19,6 +19,8 @@ import {
   SearchSpotsDto,
   SpotHistoryDto,
   SpotIdDto,
+  UserSpotsDto,
+  UserSpotsStatsDto,
   WantSpotDto,
 } from './dto/spots.dto';
 
@@ -113,6 +115,17 @@ function parseSpotId(raw: string): bigint {
     return BigInt(raw);
   } catch {
     throw new BadRequestException('spotId 解析失败');
+  }
+}
+
+function parseBigIntId(raw: string, name: string): bigint {
+  if (!/^[0-9]+$/.test(raw)) {
+    throw new BadRequestException(`${name} 必须是数字字符串`);
+  }
+  try {
+    return BigInt(raw);
+  } catch {
+    throw new BadRequestException(`${name} 解析失败`);
   }
 }
 
@@ -520,6 +533,134 @@ export class SpotsService {
       total: totalApproved,
       nextCursor: hasMore ? encodeCursor(offset + limit) : null,
       hasMore,
+    };
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // "我的钓点" 列表 — 创建者维度（viewer 自看含 pending/rejected，
+  // 看别人只看 approved）
+  // ──────────────────────────────────────────────────────────────
+  async listForUser(viewerId: bigint, dto: UserSpotsDto) {
+    const targetId = dto.userId ? parseBigIntId(dto.userId, 'userId') : viewerId;
+    const tab = dto.tab ?? 'all';
+    const keyword = dto.keyword?.trim();
+    const limit = dto.limit ?? 20;
+    const offset = decodeCursor(dto.cursor);
+    const isSelf = targetId === viewerId;
+
+    const where: Prisma.SpotWhereInput = { creatorId: targetId };
+    if (!isSelf) {
+      // 别人只看 approved
+      where.status = 'approved';
+    } else if (tab === 'published') {
+      where.status = 'approved';
+    } else if (tab === 'review') {
+      where.status = { in: ['pending', 'rejected'] };
+    }
+    // tab === 'all' 且 isSelf → 不加 status 过滤
+    if (keyword) {
+      where.OR = [
+        { name: { contains: keyword } },
+        { city: { contains: keyword } },
+      ];
+    }
+
+    const rows = await this.prisma.spot.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: offset,
+      take: limit + 1,
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        waterType: true,
+        lat: true,
+        lng: true,
+        address: true,
+        city: true,
+        status: true,
+        photos: true,
+        fishSpecies: true,
+        avgRating: true,
+        ratingCount: true,
+        wantCount: true,
+        createdAt: true,
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    return {
+      list: page.map((s) => ({
+        id: s.id.toString(),
+        name: s.name,
+        type: s.type,
+        waterType: s.waterType,
+        lat: s.lat.toNumber(),
+        lng: s.lng.toNumber(),
+        address: s.address,
+        city: s.city,
+        status: s.status,
+        photos: parseJsonField<string[]>(s.photos as string | string[] | null, []),
+        fishSpecies: parseJsonField<string[]>(
+          s.fishSpecies as string | string[] | null,
+          [],
+        ),
+        avgRating: s.avgRating.toNumber(),
+        ratingCount: s.ratingCount,
+        wantCount: s.wantCount,
+        createdAt: s.createdAt.toISOString(),
+      })),
+      nextCursor: hasMore ? encodeCursor(offset + limit) : null,
+      hasMore,
+    };
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // "我的钓点" 统计 — total / 审核中 / 本月新增 / 最热钓点
+  // ──────────────────────────────────────────────────────────────
+  async statsForUser(viewerId: bigint, dto: UserSpotsStatsDto) {
+    const targetId = dto.userId ? parseBigIntId(dto.userId, 'userId') : viewerId;
+    const isSelf = targetId === viewerId;
+
+    // 别人看到的 total 只含 approved；自己看含所有
+    const baseWhere: Prisma.SpotWhereInput = isSelf
+      ? { creatorId: targetId }
+      : { creatorId: targetId, status: 'approved' };
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [total, reviewing, monthAdd, hottest] = await Promise.all([
+      this.prisma.spot.count({ where: baseWhere }),
+      isSelf
+        ? this.prisma.spot.count({
+            where: { creatorId: targetId, status: 'pending' },
+          })
+        : Promise.resolve(0),
+      this.prisma.spot.count({
+        where: { ...baseWhere, createdAt: { gte: startOfMonth } },
+      }),
+      this.prisma.spot.findFirst({
+        where: { creatorId: targetId, status: 'approved' },
+        orderBy: [{ wantCount: 'desc' }, { ratingCount: 'desc' }],
+        select: { id: true, name: true, wantCount: true, ratingCount: true },
+      }),
+    ]);
+
+    return {
+      total,
+      reviewing,
+      monthAdd,
+      hottest: hottest
+        ? {
+            id: hottest.id.toString(),
+            name: hottest.name,
+            wantCount: hottest.wantCount,
+            ratingCount: hottest.ratingCount,
+          }
+        : null,
     };
   }
 }

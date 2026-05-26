@@ -22,6 +22,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (!payload?.sub) {
       throw new UnauthorizedException('invalid token');
     }
+    // 防 refresh token 被当 access 调用业务接口:
+    // 旧版本签发的 token 没有 typ 字段,放行(向后兼容);新版本 typ 必须是 'access'
+    if (payload.typ && payload.typ !== 'access') {
+      throw new UnauthorizedException('not an access token');
+    }
     return payload;
   }
 }
