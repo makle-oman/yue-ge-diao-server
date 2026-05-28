@@ -17,6 +17,99 @@ const MIME_TO_EXT: Record<string, string> = {
 /** 与 getConfig().upload.maxImageMB 保持一致，避免两边漂移 */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
+interface ImageSize {
+  width: number;
+  height: number;
+}
+
+function readU24LE(buffer: Buffer, offset: number): number {
+  return buffer[offset] + (buffer[offset + 1] << 8) + (buffer[offset + 2] << 16);
+}
+
+function readPngSize(buffer: Buffer): ImageSize | null {
+  if (
+    buffer.length < 24 ||
+    buffer[0] !== 0x89 ||
+    buffer[1] !== 0x50 ||
+    buffer[2] !== 0x4e ||
+    buffer[3] !== 0x47
+  ) {
+    return null;
+  }
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  };
+}
+
+function readJpegSize(buffer: Buffer): ImageSize | null {
+  if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
+  let offset = 2;
+  while (offset + 9 < buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    const marker = buffer[offset + 1];
+    const isSof =
+      (marker >= 0xc0 && marker <= 0xc3) ||
+      (marker >= 0xc5 && marker <= 0xc7) ||
+      (marker >= 0xc9 && marker <= 0xcb) ||
+      (marker >= 0xcd && marker <= 0xcf);
+    const segmentLength = buffer.readUInt16BE(offset + 2);
+    if (segmentLength < 2 || offset + 2 + segmentLength > buffer.length) return null;
+    if (isSof) {
+      return {
+        height: buffer.readUInt16BE(offset + 5),
+        width: buffer.readUInt16BE(offset + 7),
+      };
+    }
+    offset += 2 + segmentLength;
+  }
+  return null;
+}
+
+function readWebpSize(buffer: Buffer): ImageSize | null {
+  if (
+    buffer.length < 30 ||
+    buffer.toString('ascii', 0, 4) !== 'RIFF' ||
+    buffer.toString('ascii', 8, 12) !== 'WEBP'
+  ) {
+    return null;
+  }
+  const chunk = buffer.toString('ascii', 12, 16);
+  if (chunk === 'VP8X') {
+    return {
+      width: readU24LE(buffer, 24) + 1,
+      height: readU24LE(buffer, 27) + 1,
+    };
+  }
+  if (chunk === 'VP8 ' && buffer.length >= 30) {
+    return {
+      width: buffer.readUInt16LE(26) & 0x3fff,
+      height: buffer.readUInt16LE(28) & 0x3fff,
+    };
+  }
+  if (chunk === 'VP8L' && buffer.length >= 25 && buffer[20] === 0x2f) {
+    const b1 = buffer[21];
+    const b2 = buffer[22];
+    const b3 = buffer[23];
+    const b4 = buffer[24];
+    return {
+      width: 1 + (((b2 & 0x3f) << 8) | b1),
+      height: 1 + (((b4 & 0x0f) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6)),
+    };
+  }
+  return null;
+}
+
+function readImageSize(buffer: Buffer, mime: string): ImageSize | null {
+  if (mime === 'image/png') return readPngSize(buffer);
+  if (mime === 'image/jpeg') return readJpegSize(buffer);
+  if (mime === 'image/webp') return readWebpSize(buffer);
+  return null;
+}
+
 @Injectable()
 export class CommonService {
   getConfig() {
@@ -53,7 +146,7 @@ export class CommonService {
   handleUpload(
     file: Express.Multer.File | undefined,
     _userId: bigint,
-  ): { url: string; mime: string; sizeBytes: number } {
+  ): { url: string; mime: string; sizeBytes: number; width: number; height: number } {
     if (!file) {
       throw new BadRequestException('缺少文件字段 file');
     }
@@ -70,6 +163,10 @@ export class CommonService {
       throw new BadRequestException(
         `不支持的图片类型: ${file.mimetype || 'unknown'}`,
       );
+    }
+    const size = readImageSize(file.buffer, file.mimetype);
+    if (!size || size.width <= 0 || size.height <= 0) {
+      throw new BadRequestException('图片内容无法识别');
     }
 
     const now = new Date();
@@ -90,6 +187,8 @@ export class CommonService {
       url,
       mime: file.mimetype,
       sizeBytes: file.size,
+      width: size.width,
+      height: size.height,
     };
   }
 }

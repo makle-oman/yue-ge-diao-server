@@ -185,6 +185,14 @@ function assert(cond, msg) {
     ok.body && ok.body.data && ok.body.data.sizeBytes === FIXTURE_BYTES.length,
     `data.sizeBytes=${FIXTURE_BYTES.length}`,
   );
+  assert(
+    ok.body && ok.body.data && Number.isInteger(ok.body.data.width) && ok.body.data.width > 0,
+    'data.width is positive integer',
+  );
+  assert(
+    ok.body && ok.body.data && Number.isInteger(ok.body.data.height) && ok.body.data.height > 0,
+    'data.height is positive integer',
+  );
   console.log('   url=' + (ok.body && ok.body.data && ok.body.data.url));
 
   // GET 一遍这个 url
