@@ -41,6 +41,9 @@ importers:
       mariadb:
         specifier: ^3.5.2
         version: 3.5.2
+      multer:
+        specifier: ^2.1.1
+        version: 2.1.1
       passport:
         specifier: ^0.7.0
         version: 0.7.0

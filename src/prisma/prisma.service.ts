@@ -81,6 +81,10 @@ function buildAdapter(conn: ConnInfo & { password: string }): PrismaMariaDb {
       "SET time_zone = '+08:00'",
       'SET SESSION wait_timeout = 28800',
     ],
+
+    // MySQL 8 默认 caching_sha2_password，无 SSL 时客户端默认拒绝 RSA 公钥拉取。
+    // dev 走明文允许；上线请改 TLS。
+    allowPublicKeyRetrieval: true,
   });
 }
 
@@ -102,8 +106,8 @@ function diagnose(err: unknown): string {
   if (/Unknown database/i.test(msg)) {
     return '📁 数据库不存在：去服务器上 CREATE DATABASE，或检查 URL 末尾的库名';
   }
-  if (/ER_NOT_SUPPORTED_AUTH_MODE|caching_sha2/i.test(msg)) {
-    return '🔑 认证插件不兼容：MySQL 8 默认 caching_sha2_password，若仍报错可在服务器 ALTER USER ... IDENTIFIED WITH mysql_native_password';
+  if (/ER_NOT_SUPPORTED_AUTH_MODE|ER_CANNOT_RETRIEVE_RSA_KEY|caching_sha2|RSA public key/i.test(msg)) {
+    return '🔑 认证插件不兼容：MySQL 8 默认 caching_sha2_password，需要 allowPublicKeyRetrieval=true 或 SSL；若仍报错可在服务器 ALTER USER ... IDENTIFIED WITH mysql_native_password';
   }
   return `❓ ${msg}`;
 }
