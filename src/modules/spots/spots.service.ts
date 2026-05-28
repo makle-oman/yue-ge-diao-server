@@ -19,6 +19,7 @@ import {
   SearchSpotsDto,
   SpotHistoryDto,
   SpotIdDto,
+  UpdateSpotDto,
   UserSpotsDto,
   UserSpotsStatsDto,
   WantSpotDto,
@@ -213,11 +214,18 @@ export class SpotsService {
     const precision = precisionForRadius(radius);
     const prefixes = geohashNeighbors(dto.lat, dto.lng, precision);
 
+    const filters: Prisma.Sql[] = [Prisma.sql`status = 'approved'`];
+    filters.push(
+      Prisma.sql`LEFT(geohash, ${precision}) IN (${Prisma.join(prefixes)})`,
+    );
+    if (dto.type) filters.push(Prisma.sql`type = ${dto.type}`);
+    if (dto.waterType) filters.push(Prisma.sql`water_type = ${dto.waterType}`);
+
+    const where = Prisma.sql`WHERE ${Prisma.join(filters, ' AND ')}`;
     const rows = await this.prisma.$queryRaw<RawSpotRow[]>`
       SELECT ${Prisma.raw(SPOT_RAW_COLUMNS)}
       FROM spots
-      WHERE status = 'approved'
-        AND LEFT(geohash, ${precision}) IN (${Prisma.join(prefixes)})
+      ${where}
       LIMIT 500
     `;
 
@@ -248,11 +256,22 @@ export class SpotsService {
     const filters: Prisma.Sql[] = [Prisma.sql`status = 'approved'`];
     if (dto.keyword) {
       const kw = `%${dto.keyword}%`;
-      filters.push(Prisma.sql`(name LIKE ${kw} OR city LIKE ${kw})`);
+      filters.push(
+        Prisma.sql`(name LIKE ${kw} OR city LIKE ${kw} OR address LIKE ${kw} OR JSON_SEARCH(fish_species, 'one', ${kw}) IS NOT NULL)`,
+      );
     }
     if (dto.type) filters.push(Prisma.sql`type = ${dto.type}`);
     if (dto.waterType) filters.push(Prisma.sql`water_type = ${dto.waterType}`);
     if (dto.city) filters.push(Prisma.sql`city = ${dto.city}`);
+    const hasGeo = dto.lat != null && dto.lng != null;
+    const radius = dto.radius ?? 50_000;
+    const precision = hasGeo ? precisionForRadius(radius) : null;
+    const prefixes = hasGeo ? geohashNeighbors(dto.lat!, dto.lng!, precision!) : [];
+    if (hasGeo) {
+      filters.push(
+        Prisma.sql`LEFT(geohash, ${precision}) IN (${Prisma.join(prefixes)})`,
+      );
+    }
     if (dto.minRating != null) {
       filters.push(Prisma.sql`avg_rating >= ${dto.minRating}`);
     }
@@ -264,19 +283,35 @@ export class SpotsService {
     }
 
     const where = Prisma.sql`WHERE ${Prisma.join(filters, ' AND ')}`;
-    // 多取 1 条来判断 hasMore，避免单独跑 COUNT(*)
     const rows = await this.prisma.$queryRaw<RawSpotRow[]>`
       SELECT ${Prisma.raw(SPOT_RAW_COLUMNS)}
       FROM spots
       ${where}
       ORDER BY avg_rating DESC, (rating_count + want_count) DESC, created_at DESC
-      LIMIT ${limit + 1} OFFSET ${offset}
+      LIMIT ${hasGeo ? 500 : limit + 1} OFFSET ${hasGeo ? 0 : offset}
     `;
 
-    const hasMore = rows.length > limit;
-    const page = rows.slice(0, limit);
+    const enriched = hasGeo
+      ? rows
+          .map((r) => ({
+            row: r,
+            dist: distanceM(dto.lat!, dto.lng!, toNum(r.lat), toNum(r.lng)),
+          }))
+          .filter((x) => x.dist <= radius)
+          .sort((a, b) => a.dist - b.dist)
+      : rows.map((r) => ({ row: r, dist: undefined }));
+    const hasMore = enriched.length > offset + limit;
+    const page = enriched.slice(offset, offset + limit);
+
     return {
-      list: page.map((r) => mapRawSpot(r)),
+      list: page.map((x) =>
+        mapRawSpot(
+          x.row,
+          x.dist != null && Number.isFinite(x.dist)
+            ? Math.round(x.dist)
+            : undefined,
+        ),
+      ),
       nextCursor: hasMore ? encodeCursor(offset + limit) : null,
       hasMore,
     };
@@ -353,6 +388,40 @@ export class SpotsService {
     };
   }
 
+  async mineDetail(userId: bigint, dto: SpotIdDto) {
+    const id = parseSpotId(dto.spotId);
+    const spot = await this.prisma.spot.findUnique({ where: { id } });
+    if (!spot) {
+      throw new NotFoundException('钓点不存在');
+    }
+    if (spot.creatorId !== userId) {
+      throw new ForbiddenException('只能编辑自己上报的钓点');
+    }
+
+    return {
+      id: spot.id.toString(),
+      name: spot.name,
+      type: spot.type,
+      waterType: spot.waterType,
+      lat: spot.lat.toNumber(),
+      lng: spot.lng.toNumber(),
+      address: spot.address,
+      city: spot.city,
+      description: spot.description,
+      photos: parseJsonField<string[]>(spot.photos as string | string[] | null, []),
+      fishSpecies: parseJsonField<string[]>(
+        spot.fishSpecies as string | string[] | null,
+        [],
+      ),
+      facilities: parseJsonField<Record<string, unknown>>(
+        spot.facilities as string | Record<string, unknown> | null,
+        {},
+      ),
+      status: spot.status,
+      updatedAt: spot.updatedAt.toISOString(),
+    };
+  }
+
   // ──────────────────────────────────────────────────────────────
   // 新建（防作弊：accuracy<50m；status=approved；自动算 geohash）
   // ──────────────────────────────────────────────────────────────
@@ -390,6 +459,68 @@ export class SpotsService {
       id: spot.id.toString(),
       status: spot.status,
       createdAt: spot.createdAt.toISOString(),
+    };
+  }
+
+  async update(userId: bigint, dto: UpdateSpotDto) {
+    const spotId = parseSpotId(dto.spotId);
+    const spot = await this.prisma.spot.findUnique({
+      where: { id: spotId },
+      select: { id: true, creatorId: true, status: true },
+    });
+    if (!spot) {
+      throw new NotFoundException('钓点不存在');
+    }
+    if (spot.creatorId !== userId) {
+      throw new ForbiddenException('只能编辑自己上报的钓点');
+    }
+    if ((dto.lat == null) !== (dto.lng == null)) {
+      throw new BadRequestException('lat/lng 必须同时传');
+    }
+    if (dto.lat != null && dto.lng != null && dto.accuracy != null && dto.accuracy > 50) {
+      throw new ForbiddenException(
+        `定位精度 ${dto.accuracy}m 太低，必须 < 50m`,
+      );
+    }
+
+    const data: Prisma.SpotUpdateInput = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.type !== undefined) data.type = dto.type;
+    if (dto.waterType !== undefined) data.waterType = dto.waterType;
+    if (dto.address !== undefined) data.address = dto.address;
+    if (dto.city !== undefined) data.city = dto.city;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.fishSpecies !== undefined) {
+      data.fishSpecies = dto.fishSpecies.length
+        ? (dto.fishSpecies as unknown as Prisma.InputJsonValue)
+        : Prisma.JsonNull;
+    }
+    if (dto.facilities !== undefined) {
+      data.facilities =
+        Object.keys(dto.facilities).length > 0
+          ? (dto.facilities as unknown as Prisma.InputJsonValue)
+          : Prisma.JsonNull;
+    }
+    if (dto.photos !== undefined) {
+      data.photos = dto.photos.length
+        ? (dto.photos as unknown as Prisma.InputJsonValue)
+        : Prisma.JsonNull;
+    }
+    if (dto.lat != null && dto.lng != null) {
+      data.lat = new Prisma.Decimal(dto.lat);
+      data.lng = new Prisma.Decimal(dto.lng);
+      data.geohash = geohashEncode(dto.lat, dto.lng, 8);
+    }
+
+    const updated = await this.prisma.spot.update({
+      where: { id: spotId },
+      data,
+      select: { id: true, status: true, updatedAt: true },
+    });
+    return {
+      id: updated.id.toString(),
+      status: updated.status,
+      updatedAt: updated.updatedAt.toISOString(),
     };
   }
 

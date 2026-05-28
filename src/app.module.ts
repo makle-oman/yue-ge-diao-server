@@ -9,6 +9,10 @@ import { CatchesModule } from './modules/catches/catches.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { WeatherModule } from './modules/weather/weather.module';
+import { FavoritesModule } from './modules/favorites/favorites.module';
+import { FishesModule } from './modules/fishes/fishes.module';
+import { MessagesModule } from './modules/messages/messages.module';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
 @Module({
@@ -23,6 +27,10 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     CommentsModule,
     TeamsModule,
     NotificationsModule,
+    WeatherModule,
+    FavoritesModule,
+    FishesModule,
+    MessagesModule,
   ],
 })
 export class AppModule implements NestModule {

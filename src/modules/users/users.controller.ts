@@ -9,7 +9,7 @@ import { SpotsService } from '../spots/spots.service';
 import { UserSpotsDto, UserSpotsStatsDto } from '../spots/dto/spots.dto';
 import { TeamsService } from '../teams/teams.service';
 import { UserTeamsDto } from '../teams/dto/teams.dto';
-import { UpdateMeDto } from './dto/users.dto';
+import { FollowUserDto, NearbyUsersDto, UpdateMeDto, UserIdDto } from './dto/users.dto';
 import { UsersService } from './users.service';
 
 @Controller('users')
@@ -30,6 +30,21 @@ export class UsersController {
   @Post('update')
   update(@CurrentUserId() userId: bigint, @Body() dto: UpdateMeDto) {
     return this.usersService.updateMe(userId, dto);
+  }
+
+  @Post('detail')
+  detail(@CurrentUserId() userId: bigint, @Body() dto: UserIdDto) {
+    return this.usersService.detail(userId, dto);
+  }
+
+  @Post('nearby')
+  nearby(@CurrentUserId() userId: bigint, @Body() dto: NearbyUsersDto) {
+    return this.usersService.nearby(userId, dto);
+  }
+
+  @Post('follow')
+  follow(@CurrentUserId() userId: bigint, @Body() dto: FollowUserDto) {
+    return this.usersService.follow(userId, dto);
   }
 
   // 我的（或他人的）鱼获列表：复用 CatchesService.listForUser，

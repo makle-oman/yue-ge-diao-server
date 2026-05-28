@@ -8,6 +8,7 @@ import {
   IsInt,
   IsLatitude,
   IsLongitude,
+  IsObject,
   IsOptional,
   IsString,
   Length,
@@ -46,6 +47,11 @@ export class ListCatchesDto {
   @Max(50)
   @Type(() => Number)
   limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  keyword?: string;
 
   @IsOptional()
   @IsString()
@@ -130,6 +136,10 @@ export class CreateCatchDto {
   @IsOptional()
   @IsBoolean()
   allowComments?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  weatherSnapshot?: Record<string, unknown>;
 }
 
 export class CatchIdDto {

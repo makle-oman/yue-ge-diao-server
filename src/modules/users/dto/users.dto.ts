@@ -5,6 +5,8 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsLatitude,
+  IsLongitude,
   IsOptional,
   IsString,
   Length,
@@ -65,4 +67,49 @@ export class UpdateMeDto {
   @IsOptional()
   @IsBoolean()
   allowShowLoc?: boolean;
+}
+
+export class UserIdDto {
+  @IsString()
+  @Length(1, 32)
+  userId!: string;
+}
+
+export class NearbyUsersDto {
+  @IsLatitude()
+  @Type(() => Number)
+  lat!: number;
+
+  @IsLongitude()
+  @Type(() => Number)
+  lng!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(200_000)
+  @Type(() => Number)
+  radius?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  keyword?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  playStyle?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  @Type(() => Number)
+  limit?: number;
+}
+
+export class FollowUserDto extends UserIdDto {
+  @IsIn(['follow', 'unfollow'])
+  action!: 'follow' | 'unfollow';
 }

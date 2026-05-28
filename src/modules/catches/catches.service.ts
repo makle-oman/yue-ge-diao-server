@@ -119,6 +119,10 @@ function firstPhoto(photos: string[]): string | null {
   return photos.length > 0 ? photos[0] : null;
 }
 
+function includesKeyword(value: string | null | undefined, keyword: string): boolean {
+  return !!value && value.includes(keyword);
+}
+
 @Injectable()
 export class CatchesService {
   constructor(
@@ -142,42 +146,59 @@ export class CatchesService {
   }> {
     const limit = dto.limit ?? 20;
     const offset = decodeCursor(dto.cursor);
+    const keyword = dto.keyword?.trim() || undefined;
 
     if (dto.tab === 'nearby') {
       if (dto.lat == null || dto.lng == null) {
         throw new BadRequestException('nearby tab 必须传 lat/lng');
       }
-      return this.listNearby(viewerId, dto.lat, dto.lng, dto.radius ?? 50_000, limit, offset);
+      return this.listNearby(
+        viewerId,
+        dto.lat,
+        dto.lng,
+        dto.radius ?? 50_000,
+        limit,
+        offset,
+        keyword,
+      );
     }
 
     if (dto.tab === 'follow') {
       if (!viewerId) {
         throw new BadRequestException('follow tab 需登录');
       }
-      return this.listFollow(viewerId, limit, offset);
+      return this.listFollow(viewerId, limit, offset, keyword);
     }
 
-    return this.listRecommend(viewerId, limit, offset);
+    return this.listRecommend(viewerId, limit, offset, keyword);
   }
 
   private async listRecommend(
     viewerId: bigint | null,
     limit: number,
     offset: number,
+    keyword?: string,
   ) {
     const rows = await this.prisma.catch.findMany({
       where: { reviewStatus: 'approved' },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip: offset,
-      take: limit + 1,
+      skip: keyword ? 0 : offset,
+      take: keyword ? 500 : limit + 1,
       include: {
         user: { select: { id: true, nickname: true, avatar: true } },
         spot: { select: { id: true, name: true, city: true } },
       },
     });
 
-    const hasMore = rows.length > limit;
-    const page = rows.slice(0, limit);
+    const filtered = keyword
+      ? rows.filter((c) => this.matchesCatchKeyword(c, keyword))
+      : rows;
+    const page = keyword
+      ? filtered.slice(offset, offset + limit)
+      : filtered.slice(0, limit);
+    const hasMore = keyword
+      ? filtered.length > offset + limit
+      : filtered.length > limit;
     const likedSet = await this.fetchLikedSet(
       viewerId,
       page.map((c) => c.id),
@@ -190,7 +211,12 @@ export class CatchesService {
     };
   }
 
-  private async listFollow(viewerId: bigint, limit: number, offset: number) {
+  private async listFollow(
+    viewerId: bigint,
+    limit: number,
+    offset: number,
+    keyword?: string,
+  ) {
     const follows = await this.prisma.follow.findMany({
       where: { followerId: viewerId },
       select: { followeeId: true },
@@ -202,15 +228,22 @@ export class CatchesService {
     const rows = await this.prisma.catch.findMany({
       where: { reviewStatus: 'approved', userId: { in: followeeIds } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip: offset,
-      take: limit + 1,
+      skip: keyword ? 0 : offset,
+      take: keyword ? 500 : limit + 1,
       include: {
         user: { select: { id: true, nickname: true, avatar: true } },
         spot: { select: { id: true, name: true, city: true } },
       },
     });
-    const hasMore = rows.length > limit;
-    const page = rows.slice(0, limit);
+    const filtered = keyword
+      ? rows.filter((c) => this.matchesCatchKeyword(c, keyword))
+      : rows;
+    const page = keyword
+      ? filtered.slice(offset, offset + limit)
+      : filtered.slice(0, limit);
+    const hasMore = keyword
+      ? filtered.length > offset + limit
+      : filtered.length > limit;
     const likedSet = await this.fetchLikedSet(
       viewerId,
       page.map((c) => c.id),
@@ -229,6 +262,7 @@ export class CatchesService {
     radius: number,
     limit: number,
     offset: number,
+    keyword?: string,
   ) {
     const precision = precisionForRadius(radius);
     const prefixes = geohashNeighbors(lat, lng, precision);
@@ -259,6 +293,9 @@ export class CatchesService {
         return { row: r, dist };
       })
       .filter((x) => x.dist <= radius)
+      .filter((x) =>
+        keyword ? this.matchesRawNearbyKeyword(x.row, keyword) : true,
+      )
       .sort((a, b) => a.dist - b.dist);
 
     const page = enriched.slice(offset, offset + limit);
@@ -285,6 +322,39 @@ export class CatchesService {
       select: { catchId: true },
     });
     return new Set(likes.map((l) => l.catchId.toString()));
+  }
+
+  private matchesCatchKeyword(
+    c: Prisma.CatchGetPayload<{
+      include: {
+        user: { select: { id: true; nickname: true; avatar: true } };
+        spot: { select: { id: true; name: true; city: true } };
+      };
+    }>,
+    keyword: string,
+  ): boolean {
+    const fishSpecies = parseJsonField<string[]>(c.fishSpecies as unknown, []);
+    return (
+      includesKeyword(c.content, keyword) ||
+      includesKeyword(c.user.nickname, keyword) ||
+      includesKeyword(c.spot?.name, keyword) ||
+      includesKeyword(c.spot?.city, keyword) ||
+      fishSpecies.some((f) => f.includes(keyword))
+    );
+  }
+
+  private matchesRawNearbyKeyword(
+    r: RawNearbyCatchRow,
+    keyword: string,
+  ): boolean {
+    const fishSpecies = parseJsonField<string[]>(r.fish_species, []);
+    return (
+      includesKeyword(r.content, keyword) ||
+      includesKeyword(r.user_nickname, keyword) ||
+      includesKeyword(r.spot_name, keyword) ||
+      includesKeyword(r.spot_city, keyword) ||
+      fishSpecies.some((f) => f.includes(keyword))
+    );
   }
 
   private mapCatchRow(
@@ -392,6 +462,10 @@ export class CatchesService {
         geohash,
         locationVisible: dto.locationVisible ?? true,
         allowComments: dto.allowComments ?? true,
+        weatherSnapshot:
+          dto.weatherSnapshot != null
+            ? (dto.weatherSnapshot as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
         reviewStatus: this.defaultReviewStatus,
       },
       select: { id: true, reviewStatus: true, createdAt: true },

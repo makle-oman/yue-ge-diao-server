@@ -27,7 +27,7 @@ export class CommonService {
         devLogin: process.env.NODE_ENV !== 'production',
         wechatLogin: false,
         oss: false,
-        weather: false,
+        weather: true,
       },
       upload: {
         maxImageMB: MAX_IMAGE_BYTES / 1024 / 1024,

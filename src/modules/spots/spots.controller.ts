@@ -8,6 +8,7 @@ import {
   SearchSpotsDto,
   SpotHistoryDto,
   SpotIdDto,
+  UpdateSpotDto,
   WantSpotDto,
 } from './dto/spots.dto';
 import { SpotsService } from './spots.service';
@@ -39,9 +40,19 @@ export class SpotsController {
     return this.spotsService.detail(userId, dto);
   }
 
+  @Post('mine-detail')
+  mineDetail(@CurrentUserId() userId: bigint, @Body() dto: SpotIdDto) {
+    return this.spotsService.mineDetail(userId, dto);
+  }
+
   @Post('create')
   create(@CurrentUserId() userId: bigint, @Body() dto: CreateSpotDto) {
     return this.spotsService.create(userId, dto);
+  }
+
+  @Post('update')
+  update(@CurrentUserId() userId: bigint, @Body() dto: UpdateSpotDto) {
+    return this.spotsService.update(userId, dto);
   }
 
   @Post('want')

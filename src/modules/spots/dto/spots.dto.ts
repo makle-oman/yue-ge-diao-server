@@ -60,7 +60,15 @@ export class ListSpotsDto extends GeoQueryDto {
   cursor?: string;
 }
 
-export class NearbySpotsDto extends GeoQueryDto {}
+export class NearbySpotsDto extends GeoQueryDto {
+  @IsOptional()
+  @IsIn(SPOT_TYPES as unknown as string[])
+  type?: string;
+
+  @IsOptional()
+  @IsIn(WATER_TYPES as unknown as string[])
+  waterType?: string;
+}
 
 export class SearchSpotsDto {
   @IsOptional()
@@ -80,6 +88,23 @@ export class SearchSpotsDto {
   @IsString()
   @MaxLength(32)
   city?: string;
+
+  @IsOptional()
+  @IsLatitude()
+  @Type(() => Number)
+  lat?: number;
+
+  @IsOptional()
+  @IsLongitude()
+  @Type(() => Number)
+  lng?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(200_000)
+  @Type(() => Number)
+  radius?: number;
 
   @IsOptional()
   @IsBoolean()
@@ -148,6 +173,70 @@ export class CreateSpotDto {
   @IsLongitude()
   @Type(() => Number)
   lng!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(500)
+  @Type(() => Number)
+  accuracy?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  fishSpecies?: string[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FacilitiesDto)
+  facilities?: FacilitiesDto;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(9)
+  @IsString({ each: true })
+  photos?: string[];
+}
+
+export class UpdateSpotDto extends SpotIdDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  name?: string;
+
+  @IsOptional()
+  @IsIn(SPOT_TYPES as unknown as string[])
+  type?: string;
+
+  @IsOptional()
+  @IsIn(WATER_TYPES as unknown as string[])
+  waterType?: string;
+
+  @IsOptional()
+  @IsLatitude()
+  @Type(() => Number)
+  lat?: number;
+
+  @IsOptional()
+  @IsLongitude()
+  @Type(() => Number)
+  lng?: number;
 
   @IsOptional()
   @IsNumber()
