@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -64,6 +64,20 @@ export class CreateCatchDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(10)
   @IsString({ each: true })
+  @Length(1, 12, { each: true, message: '单个鱼种名称长度需在 1-12 之间' })
+  @Transform(({ value }: { value: unknown }) => {
+    if (!Array.isArray(value)) return value;
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const v of value) {
+      if (typeof v !== 'string') continue;
+      const s = v.trim();
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      out.push(s);
+    }
+    return out;
+  })
   fishSpecies!: string[];
 
   @IsOptional()

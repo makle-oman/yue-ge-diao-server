@@ -6,6 +6,9 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { SpotsModule } from './modules/spots/spots.module';
 import { CatchesModule } from './modules/catches/catches.module';
+import { CommentsModule } from './modules/comments/comments.module';
+import { TeamsModule } from './modules/teams/teams.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
 
 @Module({
@@ -17,6 +20,9 @@ import { TraceIdMiddleware } from './common/middleware/trace-id.middleware';
     UsersModule,
     SpotsModule,
     CatchesModule,
+    CommentsModule,
+    TeamsModule,
+    NotificationsModule,
   ],
 })
 export class AppModule implements NestModule {

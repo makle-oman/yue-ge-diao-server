@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   distanceM,
   encode as geohashEncode,
@@ -120,7 +121,10 @@ function firstPhoto(photos: string[]): string | null {
 
 @Injectable()
 export class CatchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   // 鱼获默认审核通过；TODO(content-review): 接入 imgSecCheck/msgSecCheck 后默认改 'pending'
   private readonly defaultReviewStatus = 'approved';
@@ -358,8 +362,11 @@ export class CatchesService {
         where: { id: sId },
         select: { id: true, status: true },
       });
-      if (!spot || spot.status !== 'approved') {
-        throw new NotFoundException('关联钓点不存在或未审核通过');
+      if (!spot) {
+        throw new NotFoundException('关联钓点不存在');
+      }
+      if (spot.status !== 'approved') {
+        throw new BadRequestException('关联钓点尚未审核通过,请稍后再试');
       }
       spotId = sId;
     }
@@ -484,12 +491,13 @@ export class CatchesService {
     const id = parseBigIntId(dto.catchId, 'catchId');
     const exists = await this.prisma.catch.findUnique({
       where: { id },
-      select: { id: true, reviewStatus: true },
+      select: { id: true, userId: true, reviewStatus: true, photos: true },
     });
     if (!exists || exists.reviewStatus !== 'approved') {
       throw new NotFoundException('鱼获不存在或未审核通过');
     }
 
+    let newlyLiked = false;
     const likeCount = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.catchLike.findUnique({
         where: { catchId_userId: { catchId: id, userId } },
@@ -502,6 +510,7 @@ export class CatchesService {
           data: { likeCount: { increment: 1 } },
           select: { likeCount: true },
         });
+        newlyLiked = true;
         return u.likeCount;
       }
       if (dto.action === 'unlike' && existing) {
@@ -523,6 +532,17 @@ export class CatchesService {
       return cur.likeCount;
     });
 
+    if (newlyLiked) {
+      await this.notifications.emit({
+        type: 'catch_like',
+        recipientId: exists.userId,
+        actorId: userId,
+        refType: 'catch',
+        refId: id,
+        payload: { cover: firstPhoto(parseJsonField<string[]>(exists.photos as unknown, [])) },
+      });
+    }
+
     return { ok: true, likeCount };
   }
 
@@ -533,12 +553,13 @@ export class CatchesService {
     const id = parseBigIntId(dto.catchId, 'catchId');
     const exists = await this.prisma.catch.findUnique({
       where: { id },
-      select: { id: true, reviewStatus: true },
+      select: { id: true, userId: true, reviewStatus: true, photos: true },
     });
     if (!exists || exists.reviewStatus !== 'approved') {
       throw new NotFoundException('鱼获不存在或未审核通过');
     }
 
+    let newlyCollected = false;
     const favCount = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.catchFavorite.findUnique({
         where: { catchId_userId: { catchId: id, userId } },
@@ -551,6 +572,7 @@ export class CatchesService {
           data: { favCount: { increment: 1 } },
           select: { favCount: true },
         });
+        newlyCollected = true;
         return u.favCount;
       }
       if (dto.action === 'uncollect' && existing) {
@@ -571,6 +593,17 @@ export class CatchesService {
       });
       return cur.favCount;
     });
+
+    if (newlyCollected) {
+      await this.notifications.emit({
+        type: 'catch_collect',
+        recipientId: exists.userId,
+        actorId: userId,
+        refType: 'catch',
+        refId: id,
+        payload: { cover: firstPhoto(parseJsonField<string[]>(exists.photos as unknown, [])) },
+      });
+    }
 
     return { ok: true, favCount };
   }

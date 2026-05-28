@@ -7,6 +7,8 @@ import {
 } from '../catches/dto/catches.dto';
 import { SpotsService } from '../spots/spots.service';
 import { UserSpotsDto, UserSpotsStatsDto } from '../spots/dto/spots.dto';
+import { TeamsService } from '../teams/teams.service';
+import { UserTeamsDto } from '../teams/dto/teams.dto';
 import { UpdateMeDto } from './dto/users.dto';
 import { UsersService } from './users.service';
 
@@ -16,6 +18,7 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly catchesService: CatchesService,
     private readonly spotsService: SpotsService,
+    private readonly teamsService: TeamsService,
   ) {}
 
   @Post('me')
@@ -56,5 +59,11 @@ export class UsersController {
   @Post('spots/stats')
   spotsStats(@CurrentUserId() userId: bigint, @Body() dto: UserSpotsStatsDto) {
     return this.spotsService.statsForUser(userId, dto);
+  }
+
+  // 我的（或他人的）组队列表：owner / joined / all
+  @Post('teams')
+  teams(@CurrentUserId() userId: bigint, @Body() dto: UserTeamsDto) {
+    return this.teamsService.listForUser(userId, dto);
   }
 }
