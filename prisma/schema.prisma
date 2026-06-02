@@ -25,7 +25,8 @@ model User {
   id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
   openid          String    @unique(map: "uk_openid") @db.VarChar(64)
   unionid         String?   @db.VarChar(64)
-  phone           String?   @db.VarChar(20)
+  phone           String?   @unique(map: "uk_phone") @db.VarChar(20)
+  passwordHash    String?   @map("password_hash") @db.VarChar(255)
   nickname        String?   @db.VarChar(32)
   avatar          String?   @db.VarChar(256)
   gender          Int       @default(0) @db.UnsignedTinyInt
