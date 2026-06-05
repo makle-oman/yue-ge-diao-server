@@ -3,12 +3,26 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FishLibraryDto } from './dto/fishes.dto';
 
-type FishCategory = 'fresh' | 'sea';
+export type FishCategory = 'fresh' | 'sea';
+export type FishRarity = 'rare' | 'epic' | 'legendary';
 
 interface CatalogFish {
   name: string;
   category: FishCategory;
   common: boolean;
+  rarity?: FishRarity;
+  image?: string;
+}
+
+export interface FishLibraryItem {
+  name: string;
+  category: FishCategory;
+  common: boolean;
+  rarity?: FishRarity;
+  image?: string;
+  unlocked: boolean;
+  firstCatchAt: string | null;
+  maxWeightG: number | null;
 }
 
 const CATALOG: CatalogFish[] = [
@@ -18,8 +32,16 @@ const CATALOG: CatalogFish[] = [
   { name: '鲢鳙', category: 'fresh', common: true },
   { name: '黑鱼', category: 'fresh', common: true },
   { name: '翘嘴', category: 'fresh', common: true },
-  { name: '鳜鱼', category: 'fresh', common: false },
-  { name: '青鱼', category: 'fresh', common: false },
+  { name: '黄颡鱼', category: 'fresh', common: true },
+  { name: '鲶鱼', category: 'fresh', common: true },
+  { name: '罗非鱼', category: 'fresh', common: true },
+  { name: '鳊鱼', category: 'fresh', common: true },
+  { name: '鲮鱼', category: 'fresh', common: true },
+  { name: '白条', category: 'fresh', common: true },
+  { name: '麦穗鱼', category: 'fresh', common: true },
+  { name: '泥鳅', category: 'fresh', common: true },
+  { name: '鳜鱼', category: 'fresh', common: false, rarity: 'rare' },
+  { name: '青鱼', category: 'fresh', common: false, rarity: 'epic' },
   { name: '鲈鱼', category: 'fresh', common: true },
   { name: '海鲈', category: 'sea', common: true },
   { name: '黄花鱼', category: 'sea', common: true },
@@ -32,12 +54,16 @@ const CATALOG: CatalogFish[] = [
   { name: '鲅鱼', category: 'sea', common: true },
   { name: '带鱼', category: 'sea', common: true },
   { name: '鲳鱼', category: 'sea', common: true },
+  { name: '鲐鱼', category: 'sea', common: true },
+  { name: '竹荚鱼', category: 'sea', common: true },
+  { name: '海鲫', category: 'sea', common: true },
+  { name: '剥皮鱼', category: 'sea', common: true },
   { name: '梭鱼', category: 'sea', common: true },
   { name: '鲻鱼', category: 'sea', common: true },
   { name: '沙丁鱼', category: 'sea', common: true },
   { name: '鳕鱼', category: 'sea', common: true },
-  { name: '石斑', category: 'sea', common: true },
-  { name: '石九公', category: 'sea', common: false },
+  { name: '石斑', category: 'sea', common: false, rarity: 'rare' },
+  { name: '石九公', category: 'sea', common: false, rarity: 'legendary' },
 ];
 
 function parseJsonField<T>(v: unknown, fallback: T): T {
@@ -75,23 +101,25 @@ export class FishesService {
       }
     }
 
-    const category = dto.category;
     const list = CATALOG
-      .filter((f) => !category || f.category === category)
-      .map((f) => {
+      .map((f): FishLibraryItem => {
         const r = record.get(f.name);
         return {
           name: f.name,
           category: f.category,
           common: f.common,
+          rarity: f.rarity,
+          image: f.image,
           unlocked: !!r,
           firstCatchAt: r?.firstCatchAt.toISOString() ?? null,
           maxWeightG: r?.maxWeightG ?? null,
         };
       });
 
-    const stats = this.stats(list);
-    return { list, stats };
+    return {
+      list: this.filterLibrary(list, dto),
+      stats: this.stats(list),
+    };
   }
 
   async progress(userId: bigint) {
@@ -120,5 +148,17 @@ export class FishesService {
         total: sea.length,
       },
     };
+  }
+
+  private filterLibrary(list: FishLibraryItem[], dto: FishLibraryDto) {
+    return list.filter((f) => {
+      if (dto.category && f.category !== dto.category) return false;
+      switch (dto.filter ?? 'all') {
+        case 'common': return f.common;
+        case 'rare': return !!f.rarity;
+        case 'locked': return !f.unlocked;
+        default: return true;
+      }
+    });
   }
 }

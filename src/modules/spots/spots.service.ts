@@ -17,6 +17,7 @@ import {
   ListSpotsDto,
   NearbySpotsDto,
   SearchSpotsDto,
+  SpotCitiesDto,
   SpotHistoryDto,
   SpotIdDto,
   UpdateSpotDto,
@@ -50,6 +51,14 @@ interface RawSpotRow {
   updated_at: Date;
 }
 
+interface RawCityRow {
+  name: string;
+  spots: bigint | number;
+  anglers: bigint | number | null;
+  latitude: string | number;
+  longitude: string | number;
+}
+
 export interface SpotListItem {
   id: string;
   name: string;
@@ -66,6 +75,14 @@ export interface SpotListItem {
   photos: string[];
   fishSpecies: string[];
   createdAt: string;
+}
+
+export interface SpotCityOption {
+  name: string;
+  spots: number;
+  anglers: number;
+  latitude: number;
+  longitude: number;
 }
 
 const SPOT_RAW_COLUMNS = `
@@ -158,6 +175,82 @@ export class SpotsService {
   // TODO(content-review): 接入 imgSecCheck/msgSecCheck 后默认改 'pending'
   private readonly defaultCreateStatus = 'approved';
 
+  async cities(dto: SpotCitiesDto): Promise<{ list: SpotCityOption[] }> {
+    const limit = dto.limit ?? 20;
+    const keyword = dto.keyword?.trim();
+    const filters: Prisma.Sql[] = [
+      Prisma.sql`s.status = 'approved'`,
+      Prisma.sql`s.city IS NOT NULL`,
+      Prisma.sql`s.city <> ''`,
+    ];
+    if (keyword) {
+      const kw = `%${keyword}%`;
+      filters.push(Prisma.sql`s.city LIKE ${kw}`);
+    }
+
+    const rows = await this.prisma.$queryRaw<RawCityRow[]>`
+      SELECT
+        s.city AS name,
+        COUNT(*) AS spots,
+        COALESCE(u.anglers, 0) AS anglers,
+        AVG(s.lat) AS latitude,
+        AVG(s.lng) AS longitude
+      FROM spots s
+      LEFT JOIN (
+        SELECT city, COUNT(*) AS anglers
+        FROM users
+        WHERE status = 'active'
+          AND allow_nearby = 1
+          AND city IS NOT NULL
+          AND city <> ''
+        GROUP BY city
+      ) u ON u.city = s.city
+      WHERE ${Prisma.join(filters, ' AND ')}
+      GROUP BY s.city, u.anglers
+      ORDER BY spots DESC, anglers DESC, name ASC
+      LIMIT ${Math.min(limit * 3, 150)}
+    `;
+
+    const merged = new Map<
+      string,
+      {
+        spots: number;
+        anglers: number;
+        latitudeSum: number;
+        longitudeSum: number;
+      }
+    >();
+    for (const row of rows) {
+      const name = row.name.trim().replace(/市$/, '');
+      if (!name) continue;
+      const spots = Number(row.spots);
+      const item = merged.get(name) ?? {
+        spots: 0,
+        anglers: 0,
+        latitudeSum: 0,
+        longitudeSum: 0,
+      };
+      item.spots += spots;
+      item.anglers += Number(row.anglers ?? 0);
+      item.latitudeSum += toNum(row.latitude) * spots;
+      item.longitudeSum += toNum(row.longitude) * spots;
+      merged.set(name, item);
+    }
+
+    const list = Array.from(merged.entries())
+      .map(([name, item]) => ({
+        name,
+        spots: item.spots,
+        anglers: item.anglers,
+        latitude: item.latitudeSum / item.spots,
+        longitude: item.longitudeSum / item.spots,
+      }))
+      .sort((a, b) => b.spots - a.spots || b.anglers - a.anglers || a.name.localeCompare(b.name))
+      .slice(0, limit);
+
+    return { list };
+  }
+
   // ──────────────────────────────────────────────────────────────
   // 列表（首页地图）
   // ──────────────────────────────────────────────────────────────
@@ -220,6 +313,7 @@ export class SpotsService {
     );
     if (dto.type) filters.push(Prisma.sql`type = ${dto.type}`);
     if (dto.waterType) filters.push(Prisma.sql`water_type = ${dto.waterType}`);
+    if (dto.city) filters.push(Prisma.sql`(city = ${dto.city} OR city = ${dto.city + '市'})`);
 
     const where = Prisma.sql`WHERE ${Prisma.join(filters, ' AND ')}`;
     const rows = await this.prisma.$queryRaw<RawSpotRow[]>`

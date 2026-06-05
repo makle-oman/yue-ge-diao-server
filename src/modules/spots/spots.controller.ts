@@ -6,6 +6,7 @@ import {
   ListSpotsDto,
   NearbySpotsDto,
   SearchSpotsDto,
+  SpotCitiesDto,
   SpotHistoryDto,
   SpotIdDto,
   UpdateSpotDto,
@@ -33,6 +34,12 @@ export class SpotsController {
   @Post('search')
   search(@Body() dto: SearchSpotsDto) {
     return this.spotsService.search(dto);
+  }
+
+  @Public()
+  @Post('cities')
+  cities(@Body() dto: SpotCitiesDto) {
+    return this.spotsService.cities(dto);
   }
 
   @Post('detail')

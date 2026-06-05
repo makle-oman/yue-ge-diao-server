@@ -62,12 +62,31 @@ export class ListSpotsDto extends GeoQueryDto {
 
 export class NearbySpotsDto extends GeoQueryDto {
   @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  city?: string;
+
+  @IsOptional()
   @IsIn(SPOT_TYPES as unknown as string[])
   type?: string;
 
   @IsOptional()
   @IsIn(WATER_TYPES as unknown as string[])
   waterType?: string;
+}
+
+export class SpotCitiesDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  keyword?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  @Type(() => Number)
+  limit?: number;
 }
 
 export class SearchSpotsDto {
