@@ -50,17 +50,18 @@ function assert(cond, msg) {
 }
 
 (async () => {
+  const runId = Date.now();
   // ────────────────────────────────────────────────────────────────────
   // 0. 两个 dev 用户：A（发鱼获的人） / B（看别人鱼获的人）
   // ────────────────────────────────────────────────────────────────────
   console.log('① POST /auth/dev-login × 2  (A 发鱼获 / B 看鱼获)');
   const loginA = await call('/auth/dev-login', {
-    openid: 'dev_catches_a',
-    nickname: '鱼获测试员A',
+    openid: 'dev_catches_a_' + runId,
+    nickname: '鱼获测试员A-' + runId,
   });
   const loginB = await call('/auth/dev-login', {
-    openid: 'dev_catches_b',
-    nickname: '鱼获测试员B',
+    openid: 'dev_catches_b_' + runId,
+    nickname: '鱼获测试员B-' + runId,
   });
   assert(loginA.body.code === 200, 'A login code=200');
   assert(loginB.body.code === 200, 'B login code=200');
@@ -77,7 +78,7 @@ function assert(cond, msg) {
   const spotResp = await call(
     '/spots/create',
     {
-      name: '鱼获测试·虚拟湖',
+      name: '鱼获测试·虚拟湖-' + runId,
       type: 'wild',
       waterType: 'lake',
       lat: 30.0,

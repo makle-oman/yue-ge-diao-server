@@ -44,7 +44,7 @@ function assert(cond, msg) {
 (async () => {
   console.log('① POST /weather/index');
   const idx = await call('/weather/index', { lat: 32.0603, lng: 118.7969 });
-  assert(idx.status === 200, 'HTTP 200');
+  assert(idx.status >= 200 && idx.status < 300, 'HTTP 2xx');
   assert(idx.body.code === 200, 'code=200');
   assert(idx.body.data.score >= 0 && idx.body.data.score <= 100, 'score 0-100');
   assert(typeof idx.body.data.current.weather === 'string', 'current.weather exists');

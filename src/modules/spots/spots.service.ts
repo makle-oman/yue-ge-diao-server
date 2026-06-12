@@ -91,6 +91,24 @@ const SPOT_RAW_COLUMNS = `
   avg_rating, rating_count, want_count, created_at, updated_at
 `;
 
+const DEFAULT_CITY_OPTIONS: SpotCityOption[] = [
+  { name: '北京', spots: 0, anglers: 0, latitude: 39.9042, longitude: 116.4074 },
+  { name: '上海', spots: 0, anglers: 0, latitude: 31.2304, longitude: 121.4737 },
+  { name: '广州', spots: 0, anglers: 0, latitude: 23.1291, longitude: 113.2644 },
+  { name: '深圳', spots: 0, anglers: 0, latitude: 22.5431, longitude: 114.0579 },
+  { name: '杭州', spots: 0, anglers: 0, latitude: 30.2741, longitude: 120.1551 },
+  { name: '成都', spots: 0, anglers: 0, latitude: 30.5728, longitude: 104.0668 },
+  { name: '武汉', spots: 0, anglers: 0, latitude: 30.5928, longitude: 114.3055 },
+  { name: '南京', spots: 0, anglers: 0, latitude: 32.0603, longitude: 118.7969 },
+  { name: '天津', spots: 0, anglers: 0, latitude: 39.3434, longitude: 117.3616 },
+  { name: '重庆', spots: 0, anglers: 0, latitude: 29.563, longitude: 106.5516 },
+  { name: '西安', spots: 0, anglers: 0, latitude: 34.3416, longitude: 108.9398 },
+  { name: '玉林', spots: 0, anglers: 0, latitude: 22.6545, longitude: 110.1812 },
+  { name: '容县', spots: 0, anglers: 0, latitude: 22.8584, longitude: 110.5581 },
+];
+
+const DEFAULT_CITY_RANK = new Map(DEFAULT_CITY_OPTIONS.map((item, index) => [item.name, index]));
+
 function parseJsonField<T>(v: unknown, fallback: T): T {
   if (v == null) return fallback;
   if (typeof v === 'string') {
@@ -103,10 +121,42 @@ function parseJsonField<T>(v: unknown, fallback: T): T {
   return v as T;
 }
 
+function cityFilter(city: string): Prisma.Sql {
+  const name = city.trim().replace(/市$/, '');
+  const cityName = `${name}市`;
+  const addressKeyword = `%${name}%`;
+  return Prisma.sql`(city = ${name} OR city = ${cityName} OR address LIKE ${addressKeyword})`;
+}
+
 function toNum(v: string | number | { toString(): string }): number {
   if (typeof v === 'number') return v;
   if (typeof v === 'string') return Number(v);
   return Number(v.toString());
+}
+
+function normalizeCityName(name: string): string {
+  return name.trim().replace(/市$/, '');
+}
+
+function cityFromAddressText(address: Nullable<string>): string | undefined {
+  const text = address?.trim();
+  if (!text) return undefined;
+  const name =
+    text.match(/([\u4e00-\u9fa5]{1,}县)/)?.[1] ||
+    text.match(/([\u4e00-\u9fa5]{1,}市)/)?.[1] ||
+    text.match(/([\u4e00-\u9fa5]{1,}区)/)?.[1] ||
+    '';
+  const normalized = normalizeCityName(name);
+  return normalized || undefined;
+}
+
+function cityFromDto(city: Nullable<string>, address: Nullable<string>): string | undefined {
+  const normalized = city ? normalizeCityName(city) : '';
+  return normalized || cityFromAddressText(address);
+}
+
+function isVisibleCity(name: string): boolean {
+  return !!name && !/[?？]/.test(name) && !/测试/.test(name);
 }
 
 function encodeCursor(offset: number): string {
@@ -148,6 +198,7 @@ function parseBigIntId(raw: string, name: string): bigint {
 }
 
 function mapRawSpot(r: RawSpotRow, distance?: number): SpotListItem {
+  const city = r.city ?? cityFromAddressText(r.address) ?? null;
   return {
     id: r.id.toString(),
     name: r.name,
@@ -156,7 +207,7 @@ function mapRawSpot(r: RawSpotRow, distance?: number): SpotListItem {
     lat: toNum(r.lat),
     lng: toNum(r.lng),
     address: r.address ?? null,
-    city: r.city ?? null,
+    city,
     distance,
     avgRating: toNum(r.avg_rating),
     ratingCount: r.rating_count,
@@ -218,17 +269,19 @@ export class SpotsService {
         anglers: number;
         latitudeSum: number;
         longitudeSum: number;
+        rank: number;
       }
     >();
     for (const row of rows) {
-      const name = row.name.trim().replace(/市$/, '');
-      if (!name) continue;
+      const name = normalizeCityName(row.name);
+      if (!isVisibleCity(name)) continue;
       const spots = Number(row.spots);
       const item = merged.get(name) ?? {
         spots: 0,
         anglers: 0,
         latitudeSum: 0,
         longitudeSum: 0,
+        rank: DEFAULT_CITY_RANK.get(name) ?? DEFAULT_CITY_OPTIONS.length,
       };
       item.spots += spots;
       item.anglers += Number(row.anglers ?? 0);
@@ -237,16 +290,56 @@ export class SpotsService {
       merged.set(name, item);
     }
 
+    const fallbackRows = await this.prisma.spot.findMany({
+      where: {
+        status: 'approved',
+        OR: [{ city: null }, { city: '' }],
+        address: { not: null },
+      },
+      select: { address: true, lat: true, lng: true },
+      take: 500,
+    });
+    for (const row of fallbackRows) {
+      const name = cityFromAddressText(row.address);
+      if (!name || !isVisibleCity(name)) continue;
+      if (keyword && !name.includes(normalizeCityName(keyword))) continue;
+      const item = merged.get(name) ?? {
+        spots: 0,
+        anglers: 0,
+        latitudeSum: 0,
+        longitudeSum: 0,
+        rank: DEFAULT_CITY_RANK.get(name) ?? DEFAULT_CITY_OPTIONS.length,
+      };
+      item.spots += 1;
+      item.latitudeSum += row.lat.toNumber();
+      item.longitudeSum += row.lng.toNumber();
+      merged.set(name, item);
+    }
+    for (const item of DEFAULT_CITY_OPTIONS) {
+      if (keyword && !item.name.includes(normalizeCityName(keyword))) continue;
+      if (!merged.has(item.name)) {
+        merged.set(item.name, {
+          spots: 0,
+          anglers: 0,
+          latitudeSum: item.latitude,
+          longitudeSum: item.longitude,
+          rank: DEFAULT_CITY_RANK.get(item.name) ?? DEFAULT_CITY_OPTIONS.length,
+        });
+      }
+    }
+
     const list = Array.from(merged.entries())
       .map(([name, item]) => ({
         name,
         spots: item.spots,
         anglers: item.anglers,
-        latitude: item.latitudeSum / item.spots,
-        longitude: item.longitudeSum / item.spots,
+        latitude: item.spots ? item.latitudeSum / item.spots : item.latitudeSum,
+        longitude: item.spots ? item.longitudeSum / item.spots : item.longitudeSum,
+        rank: item.rank,
       }))
-      .sort((a, b) => b.spots - a.spots || b.anglers - a.anglers || a.name.localeCompare(b.name))
-      .slice(0, limit);
+      .sort((a, b) => b.spots - a.spots || b.anglers - a.anglers || a.rank - b.rank || a.name.localeCompare(b.name))
+      .slice(0, limit)
+      .map(({ rank, ...item }) => item);
 
     return { list };
   }
@@ -268,7 +361,7 @@ export class SpotsService {
     filters.push(
       Prisma.sql`LEFT(geohash, ${precision}) IN (${Prisma.join(prefixes)})`,
     );
-    if (dto.city) filters.push(Prisma.sql`city = ${dto.city}`);
+    if (dto.city) filters.push(cityFilter(dto.city));
     if (dto.type) filters.push(Prisma.sql`type = ${dto.type}`);
 
     const where = Prisma.sql`WHERE ${Prisma.join(filters, ' AND ')}`;
@@ -313,7 +406,7 @@ export class SpotsService {
     );
     if (dto.type) filters.push(Prisma.sql`type = ${dto.type}`);
     if (dto.waterType) filters.push(Prisma.sql`water_type = ${dto.waterType}`);
-    if (dto.city) filters.push(Prisma.sql`(city = ${dto.city} OR city = ${dto.city + '市'})`);
+    if (dto.city) filters.push(cityFilter(dto.city));
 
     const where = Prisma.sql`WHERE ${Prisma.join(filters, ' AND ')}`;
     const rows = await this.prisma.$queryRaw<RawSpotRow[]>`
@@ -356,7 +449,7 @@ export class SpotsService {
     }
     if (dto.type) filters.push(Prisma.sql`type = ${dto.type}`);
     if (dto.waterType) filters.push(Prisma.sql`water_type = ${dto.waterType}`);
-    if (dto.city) filters.push(Prisma.sql`city = ${dto.city}`);
+    if (dto.city) filters.push(cityFilter(dto.city));
     const hasGeo = dto.lat != null && dto.lng != null;
     const radius = dto.radius ?? 50_000;
     const precision = hasGeo ? precisionForRadius(radius) : null;
@@ -456,7 +549,7 @@ export class SpotsService {
       lat: spot.lat.toNumber(),
       lng: spot.lng.toNumber(),
       address: spot.address,
-      city: spot.city,
+      city: spot.city ?? cityFromAddressText(spot.address) ?? null,
       description: spot.description,
       photos: parseJsonField<string[]>(spot.photos as string | string[] | null, []),
       fishSpecies: parseJsonField<string[]>(
@@ -500,7 +593,7 @@ export class SpotsService {
       lat: spot.lat.toNumber(),
       lng: spot.lng.toNumber(),
       address: spot.address,
-      city: spot.city,
+      city: spot.city ?? cityFromAddressText(spot.address) ?? null,
       description: spot.description,
       photos: parseJsonField<string[]>(spot.photos as string | string[] | null, []),
       fishSpecies: parseJsonField<string[]>(
@@ -526,6 +619,7 @@ export class SpotsService {
       );
     }
     const geohash = geohashEncode(dto.lat, dto.lng, 8);
+    const city = cityFromDto(dto.city, dto.address);
 
     const spot = await this.prisma.spot.create({
       data: {
@@ -536,7 +630,7 @@ export class SpotsService {
         lng: new Prisma.Decimal(dto.lng),
         geohash,
         address: dto.address,
-        city: dto.city,
+        city,
         description: dto.description,
         fishSpecies: dto.fishSpecies ?? Prisma.JsonNull,
         facilities:
@@ -582,7 +676,10 @@ export class SpotsService {
     if (dto.type !== undefined) data.type = dto.type;
     if (dto.waterType !== undefined) data.waterType = dto.waterType;
     if (dto.address !== undefined) data.address = dto.address;
-    if (dto.city !== undefined) data.city = dto.city;
+    if (dto.city !== undefined || dto.address !== undefined) {
+      const city = cityFromDto(dto.city, dto.address);
+      if (city !== undefined) data.city = city;
+    }
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.fishSpecies !== undefined) {
       data.fishSpecies = dto.fishSpecies.length
@@ -825,7 +922,7 @@ export class SpotsService {
         lat: s.lat.toNumber(),
         lng: s.lng.toNumber(),
         address: s.address,
-        city: s.city,
+        city: s.city ?? cityFromAddressText(s.address) ?? null,
         status: s.status,
         photos: parseJsonField<string[]>(s.photos as string | string[] | null, []),
         fishSpecies: parseJsonField<string[]>(
