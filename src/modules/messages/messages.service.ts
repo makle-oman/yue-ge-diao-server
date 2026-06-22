@@ -170,7 +170,7 @@ export class MessagesService {
         fromId: viewerId,
         toId: toUserId,
         content,
-        type: 'text',
+        type: dto.type ?? 'text',
       },
     });
     return toMessageItem(row);

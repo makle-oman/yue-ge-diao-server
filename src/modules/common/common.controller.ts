@@ -21,7 +21,7 @@ import { CommonService } from './common.service';
  *   校验抛 413 而不是被 multer 直接 cut；前后端错误信息一致
  * - 真正的 mime / size / 扩展名映射检查在 service 里，controller 只挂中间件
  */
-const UPLOAD_HARD_LIMIT_BYTES = 10 * 1024 * 1024 + 1024;
+const UPLOAD_HARD_LIMIT_BYTES = 50 * 1024 * 1024 + 1024;
 
 @Controller('common')
 export class CommonController {
@@ -62,10 +62,13 @@ export class CommonController {
         const ok =
           file.mimetype === 'image/jpeg' ||
           file.mimetype === 'image/png' ||
-          file.mimetype === 'image/webp';
+          file.mimetype === 'image/webp' ||
+          file.mimetype === 'video/mp4' ||
+          file.mimetype === 'video/quicktime' ||
+          file.mimetype === 'video/webm';
         if (!ok) {
           return cb(
-            new BadRequestException(`不支持的图片类型: ${file.mimetype}`),
+            new BadRequestException(`不支持的文件类型: ${file.mimetype}`),
             false,
           );
         }

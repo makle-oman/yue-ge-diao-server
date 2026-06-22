@@ -12,10 +12,14 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/webm': 'webm',
 };
 
 /** 与 getConfig().upload.maxImageMB 保持一致，避免两边漂移 */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
 interface ImageSize {
   width: number;
@@ -124,6 +128,7 @@ export class CommonService {
       },
       upload: {
         maxImageMB: MAX_IMAGE_BYTES / 1024 / 1024,
+        maxVideoMB: MAX_VIDEO_BYTES / 1024 / 1024,
         accept: Object.keys(MIME_TO_EXT),
       },
       dicts: {
@@ -153,20 +158,20 @@ export class CommonService {
     if (!file.buffer || file.size === 0) {
       throw new BadRequestException('上传文件为空');
     }
-    if (file.size > MAX_IMAGE_BYTES) {
+    const isVideo = file.mimetype.startsWith('video/');
+    const maxBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    if (file.size > maxBytes) {
       throw new PayloadTooLargeException(
-        `图片不能超过 ${MAX_IMAGE_BYTES / 1024 / 1024}MB`,
+        `${isVideo ? '视频' : '图片'}不能超过 ${maxBytes / 1024 / 1024}MB`,
       );
     }
     const ext = MIME_TO_EXT[file.mimetype];
     if (!ext) {
-      throw new BadRequestException(
-        `不支持的图片类型: ${file.mimetype || 'unknown'}`,
-      );
+      throw new BadRequestException(`不支持的文件类型: ${file.mimetype || 'unknown'}`);
     }
-    const size = readImageSize(file.buffer, file.mimetype);
-    if (!size || size.width <= 0 || size.height <= 0) {
-      throw new BadRequestException('图片内容无法识别');
+    const size = isVideo ? { width: 0, height: 0 } : readImageSize(file.buffer, file.mimetype);
+    if (!size || (!isVideo && (size.width <= 0 || size.height <= 0))) {
+      throw new BadRequestException('文件内容无法识别');
     }
 
     const now = new Date();

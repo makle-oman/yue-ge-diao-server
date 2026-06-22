@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 
 export class MessageThreadsDto {
   @IsOptional()
@@ -32,6 +32,10 @@ export class SendMessageDto {
   @IsString()
   @Length(1, 32)
   toUserId!: string;
+
+  @IsOptional()
+  @IsIn(['text', 'location', 'image', 'video'])
+  type?: 'text' | 'location' | 'image' | 'video';
 
   @IsString()
   @MaxLength(1000)

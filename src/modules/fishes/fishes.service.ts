@@ -85,18 +85,21 @@ export class FishesService {
   async library(userId: bigint, dto: FishLibraryDto) {
     const catches = await this.prisma.catch.findMany({
       where: { userId, reviewStatus: 'approved' },
-      select: { fishSpecies: true, weightG: true, createdAt: true },
+      select: { fishSpecies: true, photos: true, weightG: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
-    const record = new Map<string, { firstCatchAt: Date; maxWeightG: number | null }>();
+    const record = new Map<string, { firstCatchAt: Date; maxWeightG: number | null; image: string | null }>();
 
     for (const c of catches) {
       const names = parseJsonField<string[]>(c.fishSpecies as Prisma.JsonValue, []);
+      const photos = parseJsonField<string[]>(c.photos as Prisma.JsonValue, []);
+      const image = photos[0] ?? null;
       for (const name of names) {
         const old = record.get(name);
         record.set(name, {
           firstCatchAt: old?.firstCatchAt ?? c.createdAt,
           maxWeightG: Math.max(old?.maxWeightG ?? 0, c.weightG ?? 0) || null,
+          image: old?.image ?? image,
         });
       }
     }
@@ -109,7 +112,7 @@ export class FishesService {
           category: f.category,
           common: f.common,
           rarity: f.rarity,
-          image: f.image,
+          image: r ? (f.image ?? r.image ?? undefined) : f.image,
           unlocked: !!r,
           firstCatchAt: r?.firstCatchAt.toISOString() ?? null,
           maxWeightG: r?.maxWeightG ?? null,
